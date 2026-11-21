@@ -1,9 +1,37 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { AppController } from './app.controller.ts';
+import { AppService } from './app.service.ts';
+import { AuthModule } from './auth/auth.module.ts';
+import { validateEnv } from './config/env.validation.ts';
+import { RedisModule } from './redis/redis.module.ts';
+import { UsersModule } from './users/users.module.ts';
 
 @Module({
-  imports: [],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validate: validateEnv,
+    }),
+    TypeOrmModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        type: 'postgres' as const,
+        url: config.getOrThrow<string>('DATABASE_URL'),
+        autoLoadEntities: true,
+        // Migrations are recommended for production deployments.
+        synchronize: config.get<string>('NODE_ENV') !== 'production',
+        ssl:
+          config.get<string>('DATABASE_SSL') === 'true'
+            ? { rejectUnauthorized: false }
+            : false,
+      }),
+    }),
+    RedisModule,
+    UsersModule,
+    AuthModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
