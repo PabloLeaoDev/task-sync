@@ -4,6 +4,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller.ts';
 import { AppService } from './app.service.ts';
 import { AuthModule } from './auth/auth.module.ts';
+import { ChannelsModule } from './channels/channels.module.ts';
+import { ChatModule } from './chat/chat.module.ts';
 import { validateEnv } from './config/env.validation.ts';
 import { RedisModule } from './redis/redis.module.ts';
 import { UsersModule } from './users/users.module.ts';
@@ -31,6 +33,8 @@ import { UsersModule } from './users/users.module.ts';
     RedisModule,
     UsersModule,
     AuthModule,
+    ChannelsModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],

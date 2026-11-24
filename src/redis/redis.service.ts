@@ -59,6 +59,65 @@ export class RedisService implements OnModuleDestroy {
     return this.client.getdel(key);
   }
 
+  async addToSet(key: string, member: string): Promise<void> {
+    await this.client.sadd(key, member);
+  }
+
+  async removeFromSet(key: string, member: string): Promise<void> {
+    await this.client.srem(key, member);
+  }
+
+  async getSetMembers(key: string): Promise<string[]> {
+    return this.client.smembers(key);
+  }
+
+  async setHashField(
+    key: string,
+    field: string,
+    value: string,
+  ): Promise<void> {
+    await this.client.hset(key, field, value);
+  }
+
+  async getHashFields(
+    key: string,
+    fields: string[],
+  ): Promise<(string | null)[]> {
+    if (fields.length === 0) {
+      return [];
+    }
+    return this.client.hmget(key, ...fields);
+  }
+
+  async deleteHashField(key: string, field: string): Promise<void> {
+    await this.client.hdel(key, field);
+  }
+
+  async increment(key: string): Promise<number> {
+    return this.client.incr(key);
+  }
+
+  async decrement(key: string): Promise<number> {
+    return this.client.decr(key);
+  }
+
+  /** Pushes to the head of a list and keeps only the newest `maxLength` items. */
+  async pushCappedList(
+    key: string,
+    value: string,
+    maxLength: number,
+  ): Promise<void> {
+    await this.client
+      .multi()
+      .lpush(key, value)
+      .ltrim(key, 0, maxLength - 1)
+      .exec();
+  }
+
+  async getList(key: string, maxLength: number): Promise<string[]> {
+    return this.client.lrange(key, 0, maxLength - 1);
+  }
+
   async onModuleDestroy(): Promise<void> {
     try {
       await this.client.quit();

@@ -45,8 +45,8 @@ Keep business logic cleanly separated by NestJS domain modules under `src/`:
 src/
 ├── auth/           # OAuth 2.0 (Google/GitHub), JWT strategy, refresh rotation, logout blacklist, RBAC guards
 ├── users/          # User profiles, role assignments, account lookup
-├── channels/       # Project/channel CRUD, membership, bans, pinned messages
-├── chat/           # Socket.io Gateway, WS JWT middleware, room lifecycle, typing & presence events
+├── channels/       # Channel creation, membership (room authorization); bans/pins still pending
+├── chat/           # Socket.io Gateway, WS JWT middleware, presence service, event DTOs/pipes
 ├── redis/          # Shared Redis module (session/blacklist store, presence helpers, 50-msg LRU list)
 ├── rabbitmq/       # RabbitMQ connection, event publishers, queue/exchange constants
 ├── workers/        # Standalone or microservice consumers (persistence, offline notifications, audit logs)
@@ -80,8 +80,10 @@ Use consistent, colon-delimited namespaces:
 
 - `auth:blacklist:{jti}` — Revoked access token IDs (TTL = remaining token lifetime)
 - `auth:refresh:{userId}:{tokenId}` — Active refresh token sessions (TTL = `7d`)
-- `presence:online` or `presence:user:{userId}` — Online status tracking (with TTL heartbeat)
-- `chat:room:{roomId}:messages` — Capped list of the latest 50 serialized messages
+- `presence:online` — Redis SET of online user IDs
+- `presence:users` — Hash of `userId` → serialized profile (`id`, `name`, `email`, `role`) used by `users:online`
+- `presence:connections:{userId}` — Active socket count so multi-tab users stay online until the last disconnect
+- `chat:room:{roomId}:messages` — Capped list of the latest 50 serialized messages (`LPUSH` + `LTRIM 0 49`, newest first)
 
 ### RabbitMQ Queues
 
@@ -107,10 +109,44 @@ All RabbitMQ consumers must be **idempotent** (include a unique `eventId` / `mes
 - **Testing:**
 - Write unit tests (`*.spec.ts`) for services, RBAC guards, Redis cache helpers, and RabbitMQ publishers/consumers.
 - Mock external infrastructure (Redis, RabbitMQ, OAuth providers, DB) in unit tests; use isolated containers/instances for integration/E2E tests (`test/*.e2e-spec.ts`).
+- Integration tests boot the real `AppModule` (Postgres + Redis are required) and assert HTTP and Socket.io behaviour end to end. The e2e suite runs serially (`fileParallelism: false`) to avoid concurrent schema sync.
+- Reuse `test/utils/test-app.ts` helpers (`createTestApp`, `registerUser`) instead of duplicating bootstrap logic. The app must call `listen(0)` for Socket.io tests so a real port exists.
+- Do not mock Redis in integration tests: presence and room history are part of the contract.
 
 ---
 
-## 7. Common Commands
+## 7. Implemented API & WebSocket Contract
+
+### HTTP (all protected routes require `Authorization: Bearer <accessToken>`)
+
+- `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`
+- `GET /auth/google`, `GET /auth/google/callback`, `GET /auth/github`, `GET /auth/github/callback`
+- `GET /users/me` (any authenticated user); `GET /users`, `GET /users/:id`, `POST /users`, `PATCH /users/:id`, `DELETE /users/:id` (`ADMIN` only)
+- `POST /channels`, `GET /channels`, `POST /channels/:id/join` (any authenticated user; creator is automatically a member)
+
+### Socket.io
+
+The server requires an access JWT during the handshake, sent as `auth.token` or `Authorization: Bearer <token>`. The token is verified against its signature, the Redis blacklist, and the current database user; failures close the connection with `Unauthorized`.
+
+| Direction       | Event              | Payload → Ack / Broadcast                                                                                       |
+| --------------- | ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Client → Server | `room:join`        | `{ roomId }` → ack `{ roomId, messages }` with the last 50 cached messages; the caller must be a channel member |
+| Client → Server | `message:send`     | `{ roomId, content }` → ack `ChatMessage`; broadcasts `message:new` to the room and caches it immediately       |
+| Client → Server | `users:online`     | ack `OnlineUser[]` read from Redis                                                                              |
+| Server → Client | `message:new`      | `ChatMessage` (`id`, `roomId`, `sender`, `content`, `createdAt`)                                                |
+| Server → Client | `presence:online`  | `OnlineUser` when a user's first socket connects                                                                |
+| Server → Client | `presence:offline` | `{ userId }` when a user's last socket disconnects                                                              |
+
+The socket must join a room before sending messages to it. Domain errors are thrown as `WsException` and delivered through the Socket.io `exception` event; payloads are validated with DTOs via `WsValidationPipe`.
+
+Room IDs are channel UUIDs. Membership is checked with `ChannelsService.isMember` before `socket.join(...)`.
+
+### Still pending (next phases)
+
+- Message persistence, offline `@mention` notifications and audit logs in RabbitMQ (sockets currently only broadcast + cache in Redis).
+- Typing indicators, channel bans/pinned messages, migrations, and an audit trail for privileged actions.
+
+## 8. Common Commands
 
 ```bash
 # Development

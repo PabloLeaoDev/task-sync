@@ -138,9 +138,34 @@ npm run start:worker
 
 ---
 
-## Planned Domain Modules
+## Implemented API
 
-- `auth/` — OAuth 2.0 (Google/GitHub), JWT issuance/rotation, logout/blacklist integration, and RBAC guards/decorators.
-- `users/` & `channels/` — User profiles, roles, channel/project membership, bans, and pinned messages.
-- `chat/` — Socket.io gateway, handshake JWT middleware, room management, typing/presence events, and 50-message Redis cache.
-- `messaging/` (RabbitMQ) — Producers and workers for database message persistence, offline `@mention` notifications, and audit logging.
+All routes below require `Authorization: Bearer <accessToken>` unless noted otherwise.
+
+- **Auth:** `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`; OAuth at `GET /auth/google` and `GET /auth/github` (plus callbacks).
+- **Users:** `GET /users/me`; admin-only `GET /users`, `GET /users/:id`, `POST /users`, `PATCH /users/:id`, `DELETE /users/:id`.
+- **Channels:** `POST /channels`, `GET /channels`, `POST /channels/:id/join`. The creator becomes a member automatically.
+
+### WebSocket Events
+
+Connect with the access token in `auth.token` (or an `Authorization: Bearer` header). Unauthenticated, invalid or blacklisted tokens are rejected during the handshake.
+
+| Event | Direction | Payload | Result |
+| --- | --- | --- | --- |
+| `room:join` | client → server | `{ roomId }` | Ack with `{ roomId, messages }` (last 50 cached); requires channel membership |
+| `message:send` | client → server | `{ roomId, content }` | Ack with the message, broadcasts `message:new`, caches it in Redis |
+| `users:online` | client → server | — | Ack with the online users list from Redis |
+| `message:new` | server → client | `ChatMessage` | Real-time message for the room |
+| `presence:online` / `presence:offline` | server → client | `OnlineUser` / `{ userId }` | Live presence changes |
+
+Domain errors are emitted through Socket.io's `exception` event.
+
+---
+
+## Domain Modules
+
+- `auth/` — OAuth 2.0 (Google/GitHub), JWT issuance/rotation, logout/blacklist integration, token validation, and RBAC guards/decorators.
+- `users/` — User profiles, roles, and account lookup.
+- `channels/` — Channel creation and membership used to authorize room joins. Bans and pinned messages are still planned.
+- `chat/` — Socket.io gateway, handshake JWT middleware, room join/messaging, Redis presence and 50-message room cache. Typing indicators are still planned.
+- `messaging/` (RabbitMQ) — Not implemented yet: database message persistence, offline `@mention` notifications, and audit logging.

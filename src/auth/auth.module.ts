@@ -10,6 +10,7 @@ import { GithubStrategy } from './strategies/github.strategy.ts';
 import { GoogleStrategy } from './strategies/google.strategy.ts';
 import { JwtStrategy } from './strategies/jwt.strategy.ts';
 import { LocalStrategy } from './strategies/local.strategy.ts';
+import { TokenValidationService } from './token-validation.service.ts';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { LocalStrategy } from './strategies/local.strategy.ts';
   controllers: [AuthController],
   providers: [
     AuthService,
+    TokenValidationService,
     LocalStrategy,
     JwtStrategy,
     GoogleStrategy,
@@ -28,6 +30,6 @@ import { LocalStrategy } from './strategies/local.strategy.ts';
     GoogleOAuthGuard,
     GithubOAuthGuard,
   ],
-  exports: [AuthService],
+  exports: [AuthService, TokenValidationService],
 })
 export class AuthModule {}
